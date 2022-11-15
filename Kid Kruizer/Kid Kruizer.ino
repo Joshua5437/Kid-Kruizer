@@ -2,17 +2,22 @@
 #include <Wire.h>
 #include <BH1750.h>
 #include <SimpleDHT.h>
-#include "Adafruit_GFX.h"
-#include "Adafruit_ILI9341.h"
+#include <Adafruit_GFX.h>    // Core graphics library
+#include <Adafruit_ST7789.h> // Hardware-specific library for ST7789
 #include <Adafruit_MMA8451.h>
 #include <Adafruit_Sensor.h>
 
 
 
+
 #define TFT_DC 8
+#define TFT_RST        9 // Or set to -1 and connect to Arduino RESET pin
 #define TFT_CS 10
 
 #define LED 7
+
+int x, y, z;
+double roll = 0.00, pitch = 0.00;
 
 int pinDHT11 = 2;
 SimpleDHT11 dht11(pinDHT11);
@@ -21,11 +26,23 @@ Adafruit_MMA8451 mma = Adafruit_MMA8451();
 BH1750 lightMeter;
 
 // Use hardware SPI (on Uno, #13, #12, #11) and the above for CS/DC
-Adafruit_ILI9341 tft = Adafruit_ILI9341(TFT_CS, TFT_DC);
+Adafruit_ST7789 tft = Adafruit_ST7789(TFT_CS, TFT_DC, TFT_RST);
 
 void setup() {
   Serial.begin(9600);
-  Serial.println("ILI9341 Test!"); 
+  Serial.println(F("Initialized"));
+
+  tft.init(240, 320);
+
+  uint16_t time = millis();
+  tft.fillScreen(ST77XX_WHITE);
+  time = millis() - time;
+
+  Serial.println(time, DEC);
+  delay(500);
+
+  // large block of text
+  tft.fillScreen(ST77XX_WHITE);
 
   if (! mma.begin()) {
     Serial.println("Couldnt start");
@@ -48,70 +65,47 @@ void setup() {
   pinMode(LED , OUTPUT);
 
   lightMeter.begin();
- 
-  tft.begin();
 }
 
 void loop(void) {
   LightRead();
   TempRead();
-  UVRead();
   SlopeRead();
+  UVRead();
+  
 
   // DHT11 sampling rate is 1HZ.
-  delay(500);
+  delay(1500);
   LCDWrite();
 }
 
 unsigned long SlopeRead() {
-  // Read the 'raw' data in 14-bit counts
   mma.read();
-  tft.print("X:\t"); tft.print(mma.x); 
-  tft.print("\tY:\t"); tft.print(mma.y); 
-  tft.print("\tZ:\t"); tft.print(mma.z); 
-  tft.println();
 
-  /* Get a new sensor event */ 
-  sensors_event_t event; 
-  mma.getEvent(&event);
+  double x_Buff = mma.x;
+  double y_Buff = mma.y;
+  double z_Buff = mma.z;
+  roll = atan2(y_Buff, z_Buff) * 57.3;
+  pitch = atan2((- x_Buff), sqrt(y_Buff * y_Buff + z_Buff * z_Buff)) * 57.3;
 
-  /* Display the results (acceleration is measured in m/s^2) */
-  tft.print("X: \t"); tft.print(event.acceleration.x); tft.print("\t");
-  tft.print("Y: \t"); tft.print(event.acceleration.y); tft.print("\t");
-  tft.print("Z: \t"); tft.print(event.acceleration.z); tft.print("\t");
-  tft.println("m/s^2 ");
-  
-  /* Get the orientation of the sensor */
-  uint8_t o = mma.getOrientation();
-  
-  switch (o) {
-    case MMA8451_PL_PUF: 
-      Serial.println("Portrait Up Front");
-      break;
-    case MMA8451_PL_PUB: 
-      Serial.println("Portrait Up Back");
-      break;    
-    case MMA8451_PL_PDF: 
-      Serial.println("Portrait Down Front");
-      break;
-    case MMA8451_PL_PDB: 
-      Serial.println("Portrait Down Back");
-      break;
-    case MMA8451_PL_LRF: 
-      Serial.println("Landscape Right Front");
-      break;
-    case MMA8451_PL_LRB: 
-      Serial.println("Landscape Right Back");
-      break;
-    case MMA8451_PL_LLF: 
-      Serial.println("Landscape Left Front");
-      break;
-    case MMA8451_PL_LLB: 
-      Serial.println("Landscape Left Back");
-      break;
-    }
+  if(roll > 15) { 
+    tft.setTextColor(ST77XX_RED);
+    tft.println();
+    tft.println("Downhill Slope Detected!! "); 
+    tft.setTextColor(ST77XX_BLACK);
+    tft.setTextSize(2);
+  }
+  else if (roll < -15) {
+    tft.setTextColor(ST77XX_RED);
+    tft.println();
+    tft.println("Uphill Slope Detected!! "); 
+    tft.setTextColor(ST77XX_BLACK);
+    tft.setTextSize(2);
+  }
+
+  Serial.println(roll);
+  Serial.println(pitch);
   Serial.println();
-  
 }
 
 unsigned long UVRead() {
@@ -120,20 +114,20 @@ unsigned long UVRead() {
  
   sensorValue = analogRead(36);
   sensorVoltage = sensorValue/1024*5.0;
-  Serial.print("sensor reading = ");
-  Serial.print(sensorValue);
-  Serial.println("");
-  Serial.print("sensor voltage = ");
-  Serial.print(sensorVoltage);
-  Serial.println(" V");
-  delay(1000);
+  tft.println();
+  tft.print("UV Index = ");
+  tft.print(sensorValue);
+  tft.println();
+  tft.print("Voltage = ");
+  tft.print(sensorVoltage);
+  tft.println(" V");
 }
 
 unsigned long LCDWrite() {
-  tft.fillScreen(ILI9341_BLACK);   // Clears screen.
+  tft.fillScreen(ST77XX_WHITE); // Clears screen.
   unsigned long start = micros();
   tft.setCursor(0, 0);               // Returns display to orgin. 
-  tft.setTextColor(ILI9341_YELLOW); tft.setTextSize(2);   // Changes text color to RED!! and changes text size.
+  tft.setTextColor(ST77XX_BLACK); tft.setTextSize(2);   // Changes text color to RED!! and changes text size.
   tft.println();
   
   return micros() - start;
@@ -151,10 +145,10 @@ unsigned long TempRead() {
   }
 
   if(((((int)temperature * 9) / 5) + (32)) > 80) {
-    tft.setTextColor(ILI9341_WHITE);
+    tft.setTextColor(ST77XX_RED);
     tft.setTextSize(3);
     tft.println(" High Temp!! ");
-    tft.setTextColor(ILI9341_YELLOW);
+    tft.setTextColor(ST77XX_BLACK);
     tft.setTextSize(2);
   }
   
@@ -170,10 +164,10 @@ unsigned long LightRead() {
   tft.println();
 
   if(lux < 180) {
-    tft.setTextColor(ILI9341_WHITE);
+    tft.setTextColor(ST77XX_RED);
     tft.setTextSize(3);
     tft.println("NIGHT");
-    tft.setTextColor(ILI9341_YELLOW);
+    tft.setTextColor(ST77XX_BLACK);
     tft.setTextSize(2);
     digitalWrite(LED , HIGH);//turn the LED On by making the voltage HIGH
     tft.println();
@@ -182,5 +176,3 @@ unsigned long LightRead() {
     digitalWrite(LED , LOW);// turn the LED Off by making the voltage LOW
   }
 }
-
-
